@@ -29,6 +29,10 @@ foreach(DEPENDENCY ${PROJECT_DEPENDENCIES})
   find_package(${DEPENDENCY} REQUIRED)
 endforeach()
 
+# multirotor_simulator v2.0 uses assert() without including <cassert>, which
+# newer compilers (GCC >= 15) reject.
+add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-include;cassert>")
+
 # Add project submodules
 if(${multirotor_simulator_FOUND})
   message(STATUS "multirotor_simulator found")

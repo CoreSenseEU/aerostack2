@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.8)
 set(PROJECT_NAME  as2_behaviors_swarm_flocking)
 project(${PROJECT_NAME} VERSION 1.0.0)
 
+# Code fetched at build time uses assert() without including <cassert>,
+# which newer compilers (GCC >= 15) reject.
+add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-include;cassert>")
+
 # Default to C++17
 if(NOT CMAKE_CXX_STANDARD)
 set(CMAKE_CXX_STANDARD 17)

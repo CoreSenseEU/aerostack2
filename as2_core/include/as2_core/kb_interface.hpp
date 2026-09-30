@@ -42,7 +42,7 @@
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
-#include "kb_msgs/srv/event.hpp"
+#include "kb_msgs/srv/register_event.hpp"
 #include "kb_msgs/srv/query.hpp"
 #include "std_msgs/msg/string.hpp"
 
@@ -98,7 +98,7 @@ private:
   rclcpp::Node * node_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr add_fact_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr remove_fact_pub_;
-  rclcpp::Client<kb_msgs::srv::Event>::SharedPtr event_client_;
+  rclcpp::Client<kb_msgs::srv::RegisterEvent>::SharedPtr event_client_;
   rclcpp::Client<kb_msgs::srv::Query>::SharedPtr query_client_;
   std::unordered_map<std::string,
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr> event_handlers_;
