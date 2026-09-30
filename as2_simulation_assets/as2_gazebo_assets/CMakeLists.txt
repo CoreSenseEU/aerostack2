@@ -19,10 +19,23 @@ find_package(gz-common5 QUIET)
 if(gz-common5_FOUND)
   set(GZ_VERSION "harmonic")
 endif()
+# check if ionic libs are available (ROS 2 Kilted)
+find_package(gz-common6 QUIET)
+if(gz-common6_FOUND)
+  set(GZ_VERSION "ionic")
+endif()
 
 message("Using GAZEBO version: ${GZ_VERSION}")
 
-if( ${GZ_VERSION} STREQUAL "harmonic" )
+if( ${GZ_VERSION} STREQUAL "ionic" )
+set(GZ_SIM "gz-sim9")
+set(GZ_COMMON "gz-common6")
+set(GZ_MATH "gz-math8")
+set(GZ_TRANSPORT "gz-transport14")
+set(GZ_PLUGIN "gz-plugin3")
+set(GZ_RENDERING "gz-rendering9")
+set(GZ_MSGS "gz-msgs11")
+elseif( ${GZ_VERSION} STREQUAL "harmonic" )
 
 set(GZ_SIM "gz-sim8")
 set(GZ_COMMON "gz-common5")
@@ -178,7 +191,7 @@ install(TARGETS
 
 # ============================================================================
 # Plugins
-if( ${GZ_VERSION} STREQUAL "harmonic" )
+if( ${GZ_VERSION} STREQUAL "harmonic" OR ${GZ_VERSION} STREQUAL "ionic" )
 
 ## Suction gripper plugin
 add_library(SuctionGripper SHARED

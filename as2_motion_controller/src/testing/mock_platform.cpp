@@ -30,6 +30,15 @@
 
 #include "as2_core/names/services.hpp"
 
+#include <rclcpp/version.h>
+// rclcpp >= 28 (Jazzy) takes an rclcpp::QoS for services, and Kilted removes
+// the rmw_qos_profile_t overload.
+#if RCLCPP_VERSION_GTE(28, 0, 0)
+#define AS2_SERVICES_QOS rclcpp::ServicesQoS()
+#else
+#define AS2_SERVICES_QOS rmw_qos_profile_services_default
+#endif
+
 namespace as2_motion_controller_test
 {
 
@@ -56,14 +65,14 @@ MockPlatform::MockPlatform(
     std::bind(
       &MockPlatform::handleListControlModes, this,
       std::placeholders::_1, std::placeholders::_2),
-    rmw_qos_profile_services_default, list_modes_srv_callback_group_);
+    AS2_SERVICES_QOS, list_modes_srv_callback_group_);
 
   set_platform_control_mode_server_ = this->create_service<as2_msgs::srv::SetControlMode>(
     as2_names::services::platform::set_platform_control_mode,
     std::bind(
       &MockPlatform::handleSetPlatformControlMode, this,
       std::placeholders::_1, std::placeholders::_2),
-    rmw_qos_profile_services_default, set_mode_srv_callback_group_);
+    AS2_SERVICES_QOS, set_mode_srv_callback_group_);
 
   init_timer_ = this->create_wall_timer(
     init_delay,

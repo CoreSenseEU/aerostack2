@@ -32,7 +32,8 @@
 #cmakedefine ROS_DISTRO @ROS_DISTRO@
 #cmakedefine ROS_JAZZY
 
-#ifdef ROS_JAZZY
+// cv_bridge.hpp exists since Jazzy, and cv_bridge.h was removed in Kilted.
+#if defined(ROS_JAZZY) || __has_include(<cv_bridge/cv_bridge.hpp>)
 #include <cv_bridge/cv_bridge.hpp>
 #else
 #include <cv_bridge/cv_bridge.h>

@@ -24,6 +24,15 @@
 #include "behaviortree_cpp/bt_factory.h"
 #include "rclcpp/rclcpp.hpp"
 
+#include <rclcpp/version.h>
+// rclcpp >= 28 (Jazzy) takes an rclcpp::QoS for services, and Kilted removes
+// the rmw_qos_profile_t overload.
+#if RCLCPP_VERSION_GTE(28, 0, 0)
+#define AS2_SERVICES_QOS rclcpp::ServicesQoS()
+#else
+#define AS2_SERVICES_QOS rmw_qos_profile_services_default
+#endif
+
 namespace as2_behavior_tree
 {
 
@@ -65,7 +74,7 @@ public:
     // service
     getInput("service_name", service_name_);
     service_client_ = node_->create_client<ServiceT>(
-      service_name_, rmw_qos_profile_services_default, callback_group_);
+      service_name_, AS2_SERVICES_QOS, callback_group_);
 
     // Make a request for the service without parameter
     request_ = std::make_shared<typename ServiceT::Request>();
