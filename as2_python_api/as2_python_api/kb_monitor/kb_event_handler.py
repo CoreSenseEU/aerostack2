@@ -40,7 +40,7 @@ from as2_msgs.msg import MissionUpdate
 from as2_python_api.kb_monitor.kb_params import EventHandlerParams
 from as2_python_api.mission_interpreter.mission import InterpreterStatus
 from geometry_msgs.msg import PoseStamped
-from kb_msgs.srv import Event, Query
+from kb_msgs.srv import RegisterEvent, Query
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
@@ -315,7 +315,7 @@ class KBMonitorNode(Node):
         ctx = self._get_or_create_context(drone_namespace, kb_namespace)
 
         events_srv = f'/{drone_namespace}/{kb_namespace}/events'
-        cli = self.create_client(Event, events_srv)
+        cli = self.create_client(RegisterEvent, events_srv)
 
         if not cli.wait_for_service(timeout_sec=5.0):
             self.get_logger().error(
@@ -324,7 +324,7 @@ class KBMonitorNode(Node):
             )
             return False
 
-        req = Event.Request()
+        req = RegisterEvent.Request()
         req.patterns = params.patterns
         req.one_shot = params.one_shot
         req.models = params.models
@@ -339,7 +339,7 @@ class KBMonitorNode(Node):
             )
             return False
 
-        result: Event.Response = future.result()  # type: ignore
+        result: RegisterEvent.Response = future.result()  # type: ignore
         if not result.id:
             self.get_logger().error(
                 f'KB returned an empty event id for handler "{params.handler_id}"; skipping.'

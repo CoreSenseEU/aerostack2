@@ -39,7 +39,7 @@ import rclpy
 from as2_msgs.msg import MissionUpdate
 from as2_python_api.kb_monitor.kb_event_handler import _QueryHelper
 from as2_python_api.mission_interpreter.mission import InterpreterStatus
-from kb_msgs.srv import Event
+from kb_msgs.srv import RegisterEvent
 from rclpy.node import Node
 from rclpy.publisher import Publisher
 from rclpy.subscription import Subscription
@@ -85,7 +85,7 @@ class KBMissionMonitor(Node):
 
         # Knowledge Base events service client
         self._events_cli = self.create_client(
-            Event, f'/{drone_namespace}/{kb_namespace}/events'
+            RegisterEvent, f'/{drone_namespace}/{kb_namespace}/events'
         )
 
         # Dedicated query helper (own thread — safe to call from callbacks)
@@ -182,7 +182,7 @@ class KBMissionMonitor(Node):
             )
             return False
 
-        req = Event.Request()
+        req = RegisterEvent.Request()
         req.patterns = patterns
         req.one_shot = one_shot
         req.models = models if models is not None else []
@@ -197,7 +197,7 @@ class KBMissionMonitor(Node):
             )
             return False
 
-        result: Event.Response = future.result()  # type: ignore
+        result: RegisterEvent.Response = future.result()  # type: ignore
         if not result.id:
             self.get_logger().error(
                 f'KB returned an empty event id for patterns {patterns}; skipping.'

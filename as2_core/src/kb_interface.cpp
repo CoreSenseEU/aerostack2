@@ -62,7 +62,7 @@ KBInterface::KBInterface(rclcpp::Node * node)
   client_node_ = std::make_shared<rclcpp::Node>(
     std::string(node->get_name()) + "_kb_client",
     std::string(node->get_namespace()));
-  event_client_ = client_node_->create_client<kb_msgs::srv::Event>("kb/events");
+  event_client_ = client_node_->create_client<kb_msgs::srv::RegisterEvent>("kb/events");
   query_client_ = client_node_->create_client<kb_msgs::srv::Query>("kb/query");
 
   client_executor_.add_node(client_node_);
