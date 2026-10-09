@@ -27,107 +27,191 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 /**
-* @file as2_usb_camera_interface.hpp
+* @file as2_usb_camera_interface.cpp
 *
-* @brief Main for the USB camera interface node
+* @brief Implementation of the generic camera interface
 *
 * @authors David Perez Saura, Miguel Fernandez Cortizas
 */
 
 #include "as2_usb_camera_interface.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <chrono>
+#include <cmath>
+#include <string>
+#include <vector>
+
+#include "as2_core/utils/tf_utils.hpp"
+
 namespace usb_camera_interface
 {
 
-UsbCameraInterface::UsbCameraInterface(const rclcpp::NodeOptions & options)
-: as2::Node("usb_camera_interface", options)
+UsbCameraInterface::UsbCameraInterface(as2::Node * node_ptr)
+: node_ptr_(node_ptr)
 {
-  // Initialize camera
-  camera_ = std::make_shared<as2::sensors::Camera>(this);
+  // as2::sensors::Camera reads the camera_info and the camera TF from ROS
+  // parameters (when the "camera_name" parameter is set) and handles the
+  // image / camera_info publishing.
+  camera_ = std::make_shared<as2::sensors::Camera>(node_ptr_);
 
-  // Setup camera
   setupCamera();
+  cameraInfoSetup();
 
-  // create timer for image capture
-  static auto image_capture_timer_ = this->create_timer(
-    std::chrono::milliseconds(10), std::bind(&UsbCameraInterface::captureImage, this));
+  publish_images_ = node_ptr_->getParameter<bool>("publish_images");
+
+  const int output_queue_size =
+    node_ptr_->getParameter<int>("output_queue_size", 1);
+  output_queue_.setMaxSize(output_queue_size > 0 ? static_cast<size_t>(output_queue_size) : 1);
+
+  const int64_t milliseconds_from_framerate =
+    static_cast<int64_t>(1000.0 / framerate_);
+  capture_callback_group_ = node_ptr_->create_callback_group(
+    rclcpp::CallbackGroupType::MutuallyExclusive);
+  image_capture_timer_ = node_ptr_->create_timer(
+    std::chrono::milliseconds(milliseconds_from_framerate),
+    std::bind(&UsbCameraInterface::captureImage, this),
+    capture_callback_group_);
 }
 
 void UsbCameraInterface::setupCamera()
 {
   bool arducam = false;
   std::string device_port;
-  double framerate;
-  int image_width;
-  int image_height;
+  double framerate = 30.0;
+  int image_width = 0;
+  int image_height = 0;
 
-  if (!this->has_parameter("arducam")) {
-    this->declare_parameter<bool>("arducam");
-  }
-  if (!this->has_parameter("device")) {
-    this->declare_parameter<std::string>("device");
-  }
-  if (!this->has_parameter("framerate")) {
-    this->declare_parameter<double>("framerate");
-  }
-  if (!this->has_parameter("image_height")) {
-    this->declare_parameter<int>("image_height");
-  }
-  if (!this->has_parameter("image_width")) {
-    this->declare_parameter<int>("image_width");
-  }
+  // "image_width"/"image_height"/"camera_name" are already declared by the
+  // as2::sensors::Camera constructor; the getParameter helper only reads them.
+  arducam = node_ptr_->getParameter<bool>("arducam");
+  device_port = node_ptr_->getParameter<std::string>("device");
+  framerate = node_ptr_->getParameter<double>("framerate");
+  image_height = node_ptr_->getParameter<int>("image_height");
+  image_width = node_ptr_->getParameter<int>("image_width");
+  camera_name_ = node_ptr_->getParameter<std::string>("camera_name");
+  framerate_ = framerate;
 
-  this->get_parameter("arducam", arducam);
-  this->get_parameter("device", device_port);
-  this->get_parameter("framerate", framerate);
-  this->get_parameter("image_height", image_height);
-  this->get_parameter("image_width", image_width);
-
-  RCLCPP_INFO(this->get_logger(), "Video device: %s", device_port.c_str());
+  RCLCPP_INFO(node_ptr_->get_logger(), "Video device: %s", device_port.c_str());
 
   if (arducam) {
-    RCLCPP_INFO(this->get_logger(), "Using arducam");
+    // Jetson CSI Arducam backend via GStreamer nvarguscamerasrc.
+    RCLCPP_INFO(node_ptr_->get_logger(), "Using arducam (GStreamer) backend");
     std::string image_width_str = std::to_string(image_width);
     std::string image_height_str = std::to_string(image_height);
     int framerate_int = static_cast<int>(std::round(framerate));
     std::string framerate_str = std::to_string(framerate_int);
 
-    auto device_full_name = "nvarguscamerasrc sensor-id=" + device_port +
+    // Optional nvarguscamerasrc image controls, built like as2_gates_localization:
+    // ranges/compensation/wbmode/saturation are only set when they differ from the
+    // sensor default, so leaving them at the default keeps the auto behaviour.
+    const double exposure_recompensation =
+      node_ptr_->getParameter<double>("exposure_recompensation", 0.0);
+    const int exposure_range = node_ptr_->getParameter<int>("exposure_range", 0);
+    const int gain = node_ptr_->getParameter<int>("gain", 0);
+    const bool aelock = node_ptr_->getParameter<bool>("aelock", true);
+    const bool awblock = node_ptr_->getParameter<bool>("awblock", false);
+    const int wbmode = node_ptr_->getParameter<int>("wbmode", 1);
+    const int aeantibanding = node_ptr_->getParameter<int>("aeantibanding", 1);
+    const double saturation = node_ptr_->getParameter<double>("saturation", 1.0);
+
+    std::string source = "nvarguscamerasrc sensor-id=" + device_port;
+    if (exposure_recompensation != 0.0) {
+      source += " exposurecompensation=" + std::to_string(exposure_recompensation);
+    }
+    if (exposure_range != 0) {
+      const std::string e = std::to_string(exposure_range);
+      source += " exposuretimerange=\"" + e + " " + e + "\"";
+    }
+    if (gain != 0) {
+      const std::string g = std::to_string(gain);
+      source += " gainrange=\"" + g + " " + g + "\"";
+    }
+    source += " aelock=" + std::string(aelock ? "1" : "0");
+    source += " awblock=" + std::string(awblock ? "1" : "0");
+    if (wbmode != 1) {
+      source += " wbmode=" + std::to_string(wbmode);
+    }
+    source += " aeantibanding=" + std::to_string(aeantibanding);
+    if (saturation != 1.0) {
+      source += " saturation=" + std::to_string(saturation);
+    }
+
+    auto device_full_name = source +
       " ! video/x-raw(memory:NVMM), width=(int)" + image_width_str + ", height=(int)" +
       image_height_str + ",format=(string)NV12, framerate=(fraction)" + framerate_str +
       "/1 ! nvvidconv ! video/x-raw, format=(string)BGRx " +
       "! videoconvert ! video/x-raw,format=(string)BGR ! appsink drop=1";
-    RCLCPP_INFO(this->get_logger(), "Device full name: %s", device_full_name.c_str());
+    RCLCPP_INFO(node_ptr_->get_logger(), "Device full name: %s", device_full_name.c_str());
     cap_ = cv::VideoCapture(device_full_name, cv::CAP_GSTREAMER);
     if (!cap_.isOpened()) {
-      RCLCPP_ERROR(get_logger(), "Cannot open device");
+      RCLCPP_ERROR(node_ptr_->get_logger(), "Cannot open device");
       return;
     }
   } else {
-    cap_.open(device_port);
+    // Generic OpenCV backend: any USB / V4L2 camera.
+    // "device" may be a path ("/dev/video0") or a numeric index ("0").
+    const bool numeric_device = !device_port.empty() &&
+      std::all_of(device_port.begin(), device_port.end(), ::isdigit);
+    if (numeric_device) {
+      cap_.open(std::stoi(device_port));
+    } else {
+      cap_.open(device_port);
+    }
     if (!cap_.isOpened()) {
-      RCLCPP_ERROR(get_logger(), "Cannot open device");
+      RCLCPP_ERROR(node_ptr_->get_logger(), "Cannot open device");
       return;
     }
-
     cap_.set(cv::CAP_PROP_FRAME_WIDTH, image_width);
     cap_.set(cv::CAP_PROP_FRAME_HEIGHT, image_height);
     cap_.set(cv::CAP_PROP_FPS, framerate);
   }
 
-  RCLCPP_INFO(get_logger(), "Camera capture setup complete");
+  RCLCPP_INFO(node_ptr_->get_logger(), "Camera capture setup complete");
+}
+
+void UsbCameraInterface::cameraInfoSetup()
+{
+  // Mirror the intrinsics read by as2::sensors::Camera so in-process consumers
+  // (via getCameraInfoMessage) get the same calibration that is published.
+  camera_info_.width = node_ptr_->getParameter<int>("image_width");
+  camera_info_.height = node_ptr_->getParameter<int>("image_height");
+  camera_info_.distortion_model =
+    node_ptr_->getParameter<std::string>("distortion_model");
+  convertVectorToArray(
+    node_ptr_->getParameter<std::vector<double>>("camera_matrix.data"),
+    camera_info_.k);
+  convertVectorToArray(
+    node_ptr_->getParameter<std::vector<double>>("projection_matrix.data"),
+    camera_info_.p);
+  convertVectorToArray(
+    node_ptr_->getParameter<std::vector<double>>("rectification_matrix.data"),
+    camera_info_.r);
+  camera_info_.d =
+    node_ptr_->getParameter<std::vector<double>>("distortion_coefficients.data");
+  camera_info_.header.frame_id = as2::tf::generateTfName(
+    node_ptr_->get_namespace(), camera_name_ + "/camera_link");
 }
 
 void UsbCameraInterface::captureImage()
 {
-  // Capture image in device with opencv2
   cv::Mat frame;
   if (!cap_.read(frame)) {
-    RCLCPP_ERROR(get_logger(), "Cannot read image");
+    RCLCPP_ERROR(node_ptr_->get_logger(), "Cannot read image");
     return;
   }
 
-  camera_->updateData(frame);
+  if (publish_images_) {
+    camera_->updateData(frame);
+  }
+
+  CameraFrame camera_frame;
+  camera_frame.image = frame;
+  camera_frame.header.stamp = node_ptr_->now();
+  camera_frame.header.frame_id = as2::tf::generateTfName(
+    node_ptr_->get_namespace(), camera_name_ + "/camera_link");
+  output_queue_.push(camera_frame);
 }
 
 }  // namespace usb_camera_interface

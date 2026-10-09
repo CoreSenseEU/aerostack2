@@ -1,14 +1,21 @@
-name: Build jazzy
+name: jazzy
 
 on:
   pull_request:
-    types: [review_requested, ready_for_review]
+    types: [opened, synchronize, reopened, review_requested, ready_for_review]
+    branches:
+      - main
+  push:
     branches:
       - main
 
+# Cancel in-flight runs when a PR receives a new push; never cancel main builds.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  build-and-test-jazzy:
-    name: Build and test jazzy
+  build:
     runs-on: ubuntu-latest
     container:
       image: osrf/ros:jazzy-desktop
@@ -34,8 +41,8 @@ jobs:
             as2_behavior_tree
             as2_behavior
             as2_behaviors_motion
+            as2_behaviors_object_perception
             as2_behaviors_path_planning
-            as2_behaviors_perception
             as2_behaviors_platform
             as2_behaviors_swarm_flocking
             as2_behaviors_trajectory_generation

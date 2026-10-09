@@ -167,24 +167,6 @@ private:
   // Utils and internal methods.
 
   /**
-   * @brief Read parameter through shared helper.
-   *
-   * @tparam T Parameter type.
-   * @param param_name Parameter name.
-   * @param param_value [in] default value when @p use_default is true,
-   *                    [out] read value.
-   * @param use_default Whether to use @p param_value as default.
-   */
-  template<typename T>
-  inline void getParameter(
-    const std::string & param_name, T & param_value,
-    bool use_default = false)
-  {
-    generate_polynomial_trajectory_behavior_plugin_base::getParameter(
-      this, param_name, param_value, use_default);
-  }
-
-  /**
    * @brief Load trajectory generation plugin.
    */
   void loadPlugin();
@@ -352,9 +334,12 @@ private:
    * @brief Compute yaw command for a trajectory point.
    *
    * @param point Current trajectory point.
+   * @param is_horizon_sample If is first sample of the horizon
    * @return Yaw angle in radians.
    */
-  double computeYaw(const as2_msgs::msg::TrajectoryPoint & point);
+  double computeYaw(
+    const as2_msgs::msg::TrajectoryPoint & point,
+    bool is_horizon_sample);
 
   /**
    * @brief Compute yaw aligned to XY velocity vector.
@@ -366,11 +351,12 @@ private:
   double computeYawAnglePathFacing(double vx, double vy) const;
 
   /**
-   * @brief Compute yaw facing next reference waypoint.
+   * @brief Compute yaw facing the next reference waypoint, rate-limited.
    *
+   * @param current_yaw Yaw of the previous sample
    * @return Yaw angle in radians.
    */
-  double computeYawFaceReference();
+  double computeYawFaceReference(double current_yaw);
 
   /**
    * @brief Get next reference waypoint based on plugin progress.
@@ -574,6 +560,9 @@ private:
   double sampling_dt_{0.01};
   double yaw_threshold_{0.1};
   double yaw_speed_threshold_{0.0};
+
+  // Aux yaw for face reference
+  double horizon_yaw_{0.0};
 
   // Active-window size fed to the plugin. 0 disables the feature and the
   // wrapper feeds the full mission up front (legacy behavior).

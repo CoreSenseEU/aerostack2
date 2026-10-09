@@ -59,22 +59,25 @@ GeneratePolynomialTrajectoryBehavior::GeneratePolynomialTrajectoryBehavior(
   loadPlugin();
 
   // Frames
-  base_link_frame_id_ = as2::tf::generateTfName(this, "base_link");
-  map_frame_id_ = as2::tf::generateTfName(this, "map");
+  base_link_frame_id_ = this->getBaseFrameId();
+  map_frame_id_ = this->getMapFrameId();
 
-  std::string desired_frame_id;
-  getParameter("desired_frame_id", desired_frame_id);
+  // Empty takes the local reference frame of the node
+  std::string desired_frame_id = getParameter<std::string>("desired_frame_id", "");
+  if (desired_frame_id.empty()) {
+    desired_frame_id = this->getOdomFrameId();
+  }
   RCLCPP_INFO(this->get_logger(), "Using desired_frame_id: %s", desired_frame_id.c_str());
   desired_frame_id_ = as2::tf::generateTfName(this, desired_frame_id);
 
   // Parameters
-  getParameter("sampling_n", sampling_n_);
-  getParameter("sampling_dt", sampling_dt_);
-  getParameter("transform_threshold", transform_threshold_);
-  getParameter("frequency_update_frame", frequency_update_frame_);
-  getParameter("yaw_threshold", yaw_threshold_);
-  getParameter("yaw_speed_threshold", yaw_speed_threshold_);
-  getParameter("path_length", path_length_);
+  sampling_n_ = getParameter<int>("sampling_n");
+  sampling_dt_ = getParameter<double>("sampling_dt");
+  transform_threshold_ = getParameter<double>("transform_threshold");
+  frequency_update_frame_ = getParameter<double>("frequency_update_frame");
+  yaw_threshold_ = getParameter<double>("yaw_threshold");
+  yaw_speed_threshold_ = getParameter<double>("yaw_speed_threshold");
+  path_length_ = getParameter<int>("path_length");
 
   // Parameters checks
   if (path_length_ < 0) {
@@ -124,7 +127,7 @@ GeneratePolynomialTrajectoryBehavior::GeneratePolynomialTrajectoryBehavior(
 void GeneratePolynomialTrajectoryBehavior::loadPlugin()
 {
   try {
-    getParameter("plugin_name", plugin_name_);
+    plugin_name_ = getParameter<std::string>("plugin_name");
 
     plugin_loader_ = std::make_shared<pluginlib::ClassLoader<PluginBase>>(
       "as2_behaviors_trajectory_generation",
@@ -782,7 +785,7 @@ bool GeneratePolynomialTrajectoryBehavior::evaluatePoint(
     return false;
   }
 
-  out.yaw_angle = static_cast<float>(computeYaw(out));
+  out.yaw_angle = static_cast<float>(computeYaw(out, is_horizon_sample));
   return true;
 }
 
@@ -822,7 +825,8 @@ bool GeneratePolynomialTrajectoryBehavior::evaluateHorizon(
 }
 
 double GeneratePolynomialTrajectoryBehavior::computeYaw(
-  const as2_msgs::msg::TrajectoryPoint & point)
+  const as2_msgs::msg::TrajectoryPoint & point,
+  bool is_horizon_sample)
 {
   const double current_yaw =
     as2::frame::getYawFromQuaternion(
@@ -845,7 +849,9 @@ double GeneratePolynomialTrajectoryBehavior::computeYaw(
         "Yaw from topic not received yet, using initial yaw angle");
       return init_yaw_angle_;
     case as2_msgs::msg::YawMode::FACE_REFERENCE:
-      return computeYawFaceReference();
+      horizon_yaw_ = is_horizon_sample ? horizon_yaw_ : current_yaw;
+      horizon_yaw_ = computeYawFaceReference(horizon_yaw_);
+      return horizon_yaw_;
     default:
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 5000,
@@ -872,52 +878,56 @@ GeneratePolynomialTrajectoryBehavior::getNextReferenceWaypoint() const
   }
 
   const std::string next_id = plugin_->getNextWaypointId();
-  if (!next_id.empty()) {
-    const auto it = std::find_if(
-      goal_.path.begin(), goal_.path.end(),
-      [&next_id](const as2_msgs::msg::PoseStampedWithID & wp) {
-        return wp.id == next_id;
-      });
-    if (it != goal_.path.end()) {
-      return &(*it);
-    }
+  if (next_id.empty()) {
+    return nullptr;
   }
-  return &goal_.path.front();
+
+  const auto cursor = std::find_if(
+    goal_.path.begin(), goal_.path.end(),
+    [&next_id](const as2_msgs::msg::PoseStampedWithID & wp) {
+      return wp.id == next_id;
+    });
+  if (cursor == goal_.path.end()) {
+    return nullptr;
+  }
+
+  // Skip waypoints whose id contains the "ny" substring
+  const auto it = std::find_if(
+    cursor, goal_.path.end(),
+    [](const as2_msgs::msg::PoseStampedWithID & wp) {
+      return wp.id.find("ny") == std::string::npos;
+    });
+  return (it != goal_.path.end()) ? &(*it) : nullptr;
 }
 
-double GeneratePolynomialTrajectoryBehavior::computeYawFaceReference()
+double GeneratePolynomialTrajectoryBehavior::computeYawFaceReference(
+  double current_yaw)
 {
-  const auto & vehicle_pose = plugin_->getVehiclePose();
-  const double current_yaw =
-    as2::frame::getYawFromQuaternion(vehicle_pose.pose.orientation);
   const auto * next_waypoint = getNextReferenceWaypoint();
   if (next_waypoint == nullptr) {
-    time_zero_yaw_ = this->now();
     return current_yaw;
   }
 
+  // Bearing from the live vehicle position to the next reference waypoint.
+  const auto & vehicle_position = plugin_->getVehiclePose().pose.position;
   const Eigen::Vector2d diff(
-    next_waypoint->pose.pose.position.x - vehicle_pose.pose.position.x,
-    next_waypoint->pose.pose.position.y - vehicle_pose.pose.position.y);
+    next_waypoint->pose.pose.position.x - vehicle_position.x,
+    next_waypoint->pose.pose.position.y - vehicle_position.y);
 
   if (diff.norm() <= yaw_threshold_) {
-    time_zero_yaw_ = this->now();
+    // Too close to resolve a meaningful bearing: hold the chained yaw.
     return current_yaw;
   }
 
+  // Rate-limited step toward the target bearing
   const double target_yaw = as2::frame::getVector2DAngle(diff.x(), diff.y());
   const double yaw_error = as2::frame::angleMinError(target_yaw, current_yaw);
-  const rclcpp::Duration dt = this->now() - time_zero_yaw_;
-  const double dt_seconds = std::max(dt.seconds(), 1e-3);
-  // Convert angle error to bounded yaw-rate command. A non-positive
-  // yaw_speed_threshold disables the rate limit (raw error tracked).
-  double yaw_speed = yaw_error / dt_seconds;
+  double yaw_speed = yaw_error / sampling_dt_;
   if (yaw_speed_threshold_ > 0.0) {
-    yaw_speed =
-      std::clamp(yaw_speed, -yaw_speed_threshold_, yaw_speed_threshold_);
+    yaw_speed = std::clamp(yaw_speed, -yaw_speed_threshold_, yaw_speed_threshold_);
   }
-  time_zero_yaw_ = this->now();
-  return current_yaw + yaw_speed * dt_seconds;
+  const double next_yaw = current_yaw + yaw_speed * sampling_dt_;
+  return next_yaw;
 }
 
 std::vector<as2_msgs::msg::PoseStampedWithID>
@@ -1332,11 +1342,11 @@ void GeneratePolynomialTrajectoryBehavior::initDebugPublishers()
   std::string ref_waypoints;
   std::string generation_time_topic;
 
-  getParameter("debug.path_topic", path_topic);
-  getParameter("debug.reference_setpoint", ref_setpoint);
-  getParameter("debug.reference_end_waypoint", ref_end_waypoint);
-  getParameter("debug.reference_waypoints", ref_waypoints);
-  getParameter("debug.generation_time_topic", generation_time_topic);
+  path_topic = getParameter<std::string>("debug.path_topic");
+  ref_setpoint = getParameter<std::string>("debug.reference_setpoint");
+  ref_end_waypoint = getParameter<std::string>("debug.reference_end_waypoint");
+  ref_waypoints = getParameter<std::string>("debug.reference_waypoints");
+  generation_time_topic = getParameter<std::string>("debug.generation_time_topic");
 
   if (!path_topic.empty()) {
     debug_path_pub_ =

@@ -25,6 +25,7 @@
 #include "behaviortree_cpp/action_node.h"
 #include "behaviortree_cpp/bt_factory.h"
 #include "rclcpp_action/rclcpp_action.hpp"
+#include "as2_behavior_tree/port_specialization.hpp"
 
 namespace as2_behavior_tree
 {
@@ -202,7 +203,7 @@ public:
       // check the future goal handle
       if (future_goal_handle_) {
         auto elapsed = (node_->now() - time_goal_sent_)
-          .to_chrono<std::chrono::milliseconds>();
+          .template to_chrono<std::chrono::milliseconds>();
         if (!is_future_goal_handle_complete(elapsed)) {
           // return RUNNING if there is still some time before timeout happens
           if (elapsed < server_timeout_) {
@@ -236,7 +237,7 @@ public:
           goal_updated_ = false;
           send_new_goal();
           auto elapsed = (node_->now() - time_goal_sent_)
-            .to_chrono<std::chrono::milliseconds>();
+            .template to_chrono<std::chrono::milliseconds>();
           if (!is_future_goal_handle_complete(elapsed)) {
             if (elapsed < server_timeout_) {
               return BT::NodeStatus::RUNNING;
@@ -324,7 +325,7 @@ public:
       }
     }
 
-    setStatus(BT::NodeStatus::IDLE);
+    resetStatus();
   }
 
 protected:

@@ -82,7 +82,7 @@ public:
     RCLCPP_INFO(node_ptr_->get_logger(), "Follow path with yaw mode: %d", _goal.yaw.mode);
 
     for (auto & point : _goal.path) {
-      if (std::find(path_ids_.begin(), path_ids_.end(), point.id) == path_ids_.end()) {
+      if (std::find(path_ids_.begin(), path_ids_.end(), point.id) != path_ids_.end()) {
         RCLCPP_INFO(
           node_ptr_->get_logger(), "Follow path modify point %s: %f, %f, %f",
           point.id.c_str(), point.pose.position.x, point.pose.position.y,
@@ -227,13 +227,22 @@ private:
   geometry_msgs::msg::PoseStamped desired_pose_;
   geometry_msgs::msg::TwistStamped desired_twist_;
 
+  bool waypointReached()
+  {
+    if (params_.follow_path_threshold_z <= 0.0) {
+      return fabs(feedback_.actual_distance_to_next_waypoint) < params_.follow_path_threshold;
+    }
+    return distance_to_waypoint_xy_ < params_.follow_path_threshold &&
+           distance_to_waypoint_z_ < params_.follow_path_threshold_z;
+  }
+
   bool checkGoalCondition()
   {
     if (!localization_flag_) {
       return false;
     }
 
-    if (fabs(feedback_.actual_distance_to_next_waypoint) < params_.follow_path_threshold) {
+    if (waypointReached()) {
       path_ids_remaining_.erase(path_ids_remaining_.begin());
       if (path_ids_remaining_.empty()) {
         return true;
