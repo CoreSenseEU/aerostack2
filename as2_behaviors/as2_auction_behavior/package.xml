@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>as2_auction_behavior</name>
+  <version>0.0.0</version>
+  <description>Distributed multi-robot task auction behavior for Aerostack2: plugin-based allocation algorithms (CBBA, greedy sequential) with inter-agent communication via as2_ca (CoreSense Resilience Essential, WP7/TB2)</description>
+  <maintainer email="g.glenza@upm.es">Guillermo GP-Lenza</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_ros</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_components</depend>
+  <depend>pluginlib</depend>
+  <depend>as2_core</depend>
+  <depend>as2_msgs</depend>
+  <depend>as2_behavior</depend>
+  <depend>geometry_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>as2_ca</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
